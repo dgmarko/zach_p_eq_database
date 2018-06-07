@@ -1,0 +1,38 @@
+{% block js %}
+    <script language="javascript">
+
+    alert('Load script')
+
+    $('#id_saleF').onchange(function() {populateTarget(this)});
+
+    saleTr = $("#id_saleF:selected").text();
+
+    alert(saleTr)
+
+    function populateTarget(event) {
+      alert('Epes')
+    }
+
+    //
+
+    // purchases = {{ saleForm.purch | safe }}
+    // organisms = {{ saleForm.organisms | safe}};
+    // populateOrganism();
+    // $("#id_all_purchases").empty();
+    // $("#id_all_purchases").append('<option value="" disabled selected>First Select a Sale</option>');
+
+
+    // function populateOrganism() {
+    //         $('#id_organism_select').empty();
+    //         $("#id_organism_select").append('<option value="" disabled selected>Select your option</option>');
+    //         $.each(organisms, function(v) {
+    //             $('#id_organism_select')
+    //                 .append($("<option></option>")
+    //                 .attr("value", organisms[v])
+    //                 .text(organisms[v]));
+    //         });
+    //     }
+    //
+
+    </script>
+{% endblock %}
