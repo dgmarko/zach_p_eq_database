@@ -21,7 +21,7 @@ from django.conf.urls.static import static
 from zacheqsite import settings
 
 urlpatterns = [
-    path('', RedirectView.as_view(url='/accounts/login')),
+    path('', RedirectView.as_view(url='/reports/datainput')),
     path('admin/', admin.site.urls),
     path('reports/', include('reports.urls')),
     path('accounts/', include('django.contrib.auth.urls')),

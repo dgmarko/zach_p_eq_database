@@ -220,10 +220,15 @@ def load_purchases(request):
 
     for i in Transaction.objects.filter(type='Buy').filter(symbol=saleSym).filter(shareamount__lte=saleAm).values():
         if i['shareamount'] != i['matching_amount']:
-            if i['prim_key'] in dPurchases:
-                dPurchases[i['prim_key']].append(str(i['symbol']) + " " + str(i['shareamount']) + " Shares Bought " + str(i['tradedate']))
+            if i['matching_amount'] is None:
+                matchedSh = 0
             else:
-                dPurchases[i['prim_key']] = [str(i['symbol']) + " " + str(i['shareamount']) + " Shares Bought " + str(i['tradedate'])]
+                matchedSh = int(i['matching_amount'])
+
+            if i['prim_key'] in dPurchases:
+                dPurchases[i['prim_key']].append(str(i['symbol']) + " " + str(int(i['shareamount']) - matchedSh) + " Shares Bought " + str(i['tradedate']))
+            else:
+                dPurchases[i['prim_key']] = [str(i['symbol']) + " " + str(int(i['shareamount']) - matchedSh) + " Shares Bought " + str(i['tradedate'])]
 
     data = json.dumps(dPurchases)
 
@@ -263,16 +268,7 @@ def input_data(request):
             dataset = Dataset()
             trade_data = request.FILES['datafile']
             imported_data = dataset.load(trade_data.read(),format='xlsx')
-            '''
-            try:
-                imported_data = dataset.load(trade_data.read(),format='xlsx')
-            except:
-                pass
-            try:
-                imported_data = dataset.load(trade_data.read().decode('utf-8', errors='ignore'),format='xlsx')
-            except:
-                pass
-            '''
+
             conv_data = conv_input(imported_data)
 
             recordList = []
