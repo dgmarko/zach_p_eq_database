@@ -1,1 +1,1 @@
-web: gunicorn zacg_p_eq_database.wsgi --log-file -
+web: gunicorn zach_p_eq_database.wsgi --log-file -
