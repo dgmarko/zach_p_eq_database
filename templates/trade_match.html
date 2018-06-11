@@ -38,10 +38,12 @@
   <div>
     <form method="post">
       <div class="row">
-        {% csrf_token %}
-        <table>
-          {{ tradeForm.saleF }}
-        </table>
+        <div class="col-lg-4">
+          {% csrf_token %}
+          <table>
+            {{ tradeForm.saleF }}
+          </table>
+        </div>
       </div>
 
       <br>
@@ -93,8 +95,8 @@
     });
 
     $purch.on( 'change', function(){
-      var trMat = $purch.find(":selected").val().split("|");
-      $("#id_purch_shares").val(trMat[4]);
+      var trMat = $purch.find(":selected").text().split(" ");
+      $("#id_purch_shares").val(trMat[1]);
     })
 
     $('#id_saleF').on('change', function() {

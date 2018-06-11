@@ -26,7 +26,7 @@
 
 div.pltable {
     float: left;
-    width:200px;
+    width:250px;
     margin: auto;
     border: 3px solid black;
 }
@@ -49,6 +49,15 @@ div.sectable{
   border: 3px solid black;
 }
 
+div.tradetable{
+  clear:both;
+  float: left;
+  width:1000px;
+  padding: 5px;
+  margin: auto;
+  border: 3px solid black;
+}
+
 th, td {
     padding: 5px;
 }
@@ -57,15 +66,21 @@ th, td {
 <h4>Reports</h4>
 
 <div>
-  <section>
-    <form method="post" enctype="multipart/form-data">
-      {% csrf_token %}
-      <table>
-        {{ OutForm.as_table }}
-      </table>
-      <button class="button" type="submit" value="{{b.id}}" name="pullData">Generate Report</button>
-    </form>
-  </section>
+  <div class="row">
+    <div class="col-lg-4">
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <table>
+          {{ OutForm.as_table }}
+        </table>
+        <button class="button" type="submit" value="{{b.id}}" name="pullData">Generate Report</button>
+      </form>
+    </div>
+
+    <div class="col-lg-4">
+      {% render_table OpenPositionTable %}
+    </div>
+  </div>
 </div>
 
 <br>
@@ -86,7 +101,16 @@ th, td {
     </tr>
     <tr>
       <td><h5> Total </h5></td>
-      <td><h5> {{ IPO_PL }} </h5></td>
+      <td><h5> {{ Total_PL }} </h5></td>
+    </tr>
+    <tr>
+      <td><h5> Commissions </h5></td>
+      <td><h5> {{ commis }} </h5></td>
+      <td><h5> {{ Net_Perc }} </h5></td>
+    </tr>
+    <tr>
+      <td><h5> Net </h5></td>
+
     </tr>
   </table>
 </div>
@@ -97,10 +121,15 @@ th, td {
   <h4>IPOs</h4>
   {% render_table ipoTable %}
 </div>
-
+<br>
 <div class="sectable">
   <h4>Secondaries/Overnights</h4>
   {% render_table secTable %}
+</div>
+<br>
+<div class="tradetable">
+  <h4>Trades</h4>
+  {% render_table Trade_Table %}
 </div>
 
 {% endblock %}
