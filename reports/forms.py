@@ -55,7 +55,7 @@ class TradeMatchForm(forms.ModelForm):
         model = Transaction
         fields = ()
 
-    sales = Transaction.objects.filter(type='Sell').exclude(matching='Matched')
+    sales = Transaction.objects.filter(type='Sell').exclude(matching='Matched').exclude(shareamount=0)
     SALES = ()
 
     for i in sales:

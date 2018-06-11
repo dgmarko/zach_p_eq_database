@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.db.models import Q
 from django.views.generic.edit import FormView
 from django.views.generic import ListView, CreateView, UpdateView
 from django.urls import reverse_lazy
@@ -171,6 +172,7 @@ class TradeMatchView(CreateView):
         trL = []
 
         for i in buys:
+            print(i)
             matchK = ""
             trL = i.split("|")
             for j in range(0, 5):
@@ -182,8 +184,15 @@ class TradeMatchView(CreateView):
             if Transaction.objects.filter(prim_key=matchK).exists():
                 shares = int(trL[5])
                 j  = Transaction.objects.get(prim_key=matchK)
-                j.matching = passVal['saleF']
-                j.matching_amount = int(shares)
+                if j.matching is not None:
+                    j.matching += ";" + passVal['saleF'] + "|" + str(shares)
+                    j.matching_amount += int(shares)
+                else:
+                    print(passVal['saleF'])
+                    j.matching = passVal['saleF'] + "|" + str(shares)
+                    j.matching_amount = int(shares)
+
+                print(j.matching, j.matching_amount)
                 j.save()
 
                 sharesmatched += int(shares)
@@ -191,6 +200,7 @@ class TradeMatchView(CreateView):
         sale = Transaction.objects.get(prim_key=passVal['saleF'])
 
         if sale.matching_amount is not None:
+            soldSh = shares
             soldSh += int(sharesmatched)
             sale.matching_amount = soldSh
             sale.save()
@@ -351,43 +361,182 @@ def populate_output_table(purch_data, typ):
         if typ == "IPO" or typ == "2nd":
             datHeads = ['tradedate', 'symbol', 'transtype', 'shareamount', 'buyprice', 'buy_total', 'sell_price', 'sell_total', 'commiss', 'gain_loss']
 
-            heads = [('tradedate', tables.Column('Date')), ('symbol', tables.Column('Ticker')), ('transtype', tables.Column('Type')), ('shareamount', tables.Column('Shares')), ('buyprice', tables.Column('Buy Price'))
-            , ('buy_total', tables.Column('Buy Total $')), ('sell_price', tables.Column('Sell Price')), ('sell_total', tables.Column('Sell Total $')), ('commiss', tables.Column('Sell Commission $')) , ('gain_loss', tables.Column('Gain/Loss'))]
+            heads = [('tradedate', tables.Column('Date', footer='Total:')), ('symbol', tables.Column('Ticker')), ('transtype', tables.Column('Type')), ('shareamount', tables.Column('Shares')), ('buyprice', tables.Column('Buy Price'))
+            , ('buy_total', tables.Column('Buy Total $', footer=lambda table: sum(float(str(x['buy_total']).replace("$", "").replace(",","")) for x in table.data))), ('sell_price', tables.Column('Sell Price')),
+            ('sell_total', tables.Column('Sell Total $', footer=lambda table: sum(float(str(x['sell_total']).replace("$", "").replace(",","")) for x in table.data))), ('commiss', tables.Column('Sell Commission $')) ,
+            ('gain_loss', tables.Column('Gain/Loss', footer=lambda table: sum(float(str(x['gain_loss']).replace("$", "").replace(",","")) for x in table.data)))]
+
+            matchedSales= []
 
             for i in purch_data.values():
                 if ';' not in i['matching']:
-                    sale_Trans = Transaction.objects.get(prim_key=i['matching'])
+                    saleDetails = i['matching'].split("|")
+                    sharesSold = saleDetails[5]
+                    primK = ""
+                    for k in range(0, 5):
+                        if k != 4:
+                            primK += saleDetails[k] + "|"
+                        else:
+                            primK += saleDetails[k]
+                    sale_Trans = Transaction.objects.get(prim_key=primK)
+                    matchedSales.append((sale_Trans, sharesSold))
                 else:
-                    #Code for multiple sells for a buy
-                    sale_Trans = "Epes"
+                    for l in i['matching'].split(";"):
+                        saleDetails = l.split("|")
+                        sharesSold = saleDetails[5]
+                        primK = ""
+                        for k in range(0, 5):
+                            if k != 4:
+                                primK += saleDetails[k] + "|"
+                            else:
+                                primK += saleDetails[k]
+                        sale_Trans = Transaction.objects.get(prim_key=primK)
+                        matchedSales.append((sale_Trans, sharesSold))
 
                 rowDict = {}
+                avgSalePr = 0
+                shareTot = 0
+                saleTot = 0
+
+                for k in matchedSales:
+                    matSale = k[0]
+                    matShare = int(k[1])
+                    avgSalePr += float(matSale.sellprice) * matShare
+                    shareTot += matShare
+                    saleTot += matShare * float(matSale.sellprice)
+
 
                 for j in datHeads:
                     datDict = {}
 
                     if j in i:
-                        datDict[j] = i[j]
+                        if j == 'buyprice' or j =='commiss':
+                            datDict[j] = '${:,.2f}'.format(i[j])
+                        else:
+                            datDict[j] = i[j]
                     elif j == 'sell_price':
-                        datDict[j] = sale_Trans.sellprice
+                        if shareTot != 0:
+                            salePr = avgSalePr / shareTot
+                            datDict[j] = '${:,.2f}'.format(avgSalePr / shareTot)
                     elif j == 'buy_total':
-                        datDict[j] = float(i['shareamount']) * float(i['buyprice'])
+                        datDict[j] = '${:,.2f}'.format(float(i['shareamount']) * float(i['buyprice']))
                     elif j == 'sell_total':
-                        datDict[j] = float(sale_Trans.sellprice) * float(i['matching_amount'])
+                        datDict[j] = '${:,.2f}'.format(saleTot)
                     elif j == 'gain_loss':
-                        datDict[j] = float(i['matching_amount']) * (float(sale_Trans.sellprice) - float(i['buyprice']))
+                        datDict[j] = '${:,.2f}'.format(float(i['matching_amount']) * (salePr - float(i['buyprice'])))
 
                     rowDict.update(datDict)
 
                 outTable.append(rowDict)
 
-        table = TransactionTable(outTable, extra_columns=heads)
-        return(table)
+            table = TransactionTable(outTable, extra_columns=heads)
+            return(table)
+        elif typ == "Trade":
+            datHeads = ['tradedate', 'symbol', 'transtype', 'shareamount', 'buyprice', 'buy_commiss', 'sell_price', 'commiss']
+
+            heads = [('tradedate', tables.Column('Date', footer='Total:')), ('symbol', tables.Column('Ticker')), ('transtype', tables.Column('Type')), ('shareamount', tables.Column('Shares')), ('buyprice', tables.Column('Buy Price'))
+            , ('buy_commiss', tables.Column('Buy Commission')), ('sell_price', tables.Column('Sell Price')), ('commiss', tables.Column('Sell Commission $'))]
+
+            matchedSales= []
+
+            for i in purch_data.values():
+                rowDict = {}
+                avgSalePr = 0
+                shareTot = 0
+                saleTot = 0
+
+                if i['matching'] is not None:
+                    if ';' not in i['matching']:
+                        saleDetails = i['matching'].split("|")
+                        sharesSold = saleDetails[5]
+                        primK = ""
+                        for k in range(0, 5):
+                            if k != 4:
+                                primK += saleDetails[k] + "|"
+                            else:
+                                primK += saleDetails[k]
+                        sale_Trans = Transaction.objects.get(prim_key=primK)
+                        matchedSales.append((sale_Trans, sharesSold))
+                    else:
+                        for l in i['matching'].split(";"):
+                            saleDetails = l.split("|")
+                            sharesSold = saleDetails[5]
+                            primK = ""
+                            for k in range(0, 5):
+                                if k != 4:
+                                    primK += saleDetails[k] + "|"
+                                else:
+                                    primK += saleDetails[k]
+                            sale_Trans = Transaction.objects.get(prim_key=primK)
+                            matchedSales.append((sale_Trans, sharesSold))
+
+                    rowDict = {}
+                    avgSalePr = 0
+                    shareTot = 0
+                    saleTot = 0
+
+                    for k in matchedSales:
+                        matSale = k[0]
+                        matShare = int(k[1])
+                        avgSalePr += float(matSale.sellprice) * matShare
+                        shareTot += matShare
+                        saleTot += matShare * float(matSale.sellprice)
+
+                for j in datHeads:
+                    datDict = {}
+
+                    if j in i:
+                        if j == 'buyprice' or j =='commiss':
+                            if j == 'commiss' and i['type'] == 'Sell':
+                                datDict[j] = '${:,.2f}'.format(i[j])
+                            elif j == 'buyprice':
+                                datDict[j] = '${:,.2f}'.format(i[j])
+                        else:
+                            datDict[j] = i[j]
+                    elif j == 'sell_price':
+                        if shareTot != 0:
+                            salePr = avgSalePr / shareTot
+                            datDict[j] = '${:,.2f}'.format(avgSalePr / shareTot)
+                    elif j == 'buy_commiss' and i['type'] == 'Buy':
+                        datDict[j] = '${:,.2f}'.format(i['commiss'])
+
+                    rowDict.update(datDict)
+
+                outTable.append(rowDict)
+
+            table = TransactionTable(outTable, extra_columns=heads)
+            return(table)
+
+def populate_open_pos_table(openPosList):
+    outTable = []
+    datHeads = ['symbol', 'transtype', 'open_pos']
+
+    heads = [('symbol', tables.Column('Symbol')), ('transtype', tables.Column('Type')), ('open_pos', tables.Column('Open Position'))]
+
+    for i in openPosList:
+        rowDict = {}
+
+        for j in datHeads:
+            datDict = {}
+
+            if j == 'symbol':
+                datDict[j] = i[0]
+            elif j == 'transtype':
+                datDict[j] = i[1]
+            elif j == 'open_pos':
+                datDict[j] = i[2]
+
+            rowDict.update(datDict)
+        outTable.append(rowDict)
+
+    table = OpenPosTable(outTable, extra_columns=heads)
+    return(table)
 
 class TransactionTable(tables.Table):
     paginate_by = 10
 
-    trade_date = tables.Column()
+class OpenPosTable(tables.Table):
+    paginate_by = 5
 
 
 class OutputData(FormView):
@@ -396,6 +545,7 @@ class OutputData(FormView):
 
     def get(self, request):
         oForm = OutputForm()
+        openPos = []
 
         ipo_table = populate_output_table(Transaction.objects.none(), "IPO")
         RequestConfig(request, paginate={'per_page': 10}).configure(ipo_table)
@@ -403,10 +553,17 @@ class OutputData(FormView):
         sec_table = populate_output_table(Transaction.objects.none(), "2nd")
         RequestConfig(request, paginate={'per_page': 10}).configure(sec_table)
 
-        return render(request, 'output.html', context = {'OutForm':oForm, 'ipoTable':ipo_table, 'secTable':sec_table})
+        trade_table = populate_output_table(Transaction.objects.none(), "Trade")
+        RequestConfig(request, paginate={'per_page': 10}).configure(trade_table)
+
+        op_Pos_Table = populate_open_pos_table(openPos)
+        RequestConfig(request, paginate={'per_page': 3}).configure(op_Pos_Table)
+
+        return render(request, 'output.html', context = {'OutForm':oForm, 'OpenPositionTable':op_Pos_Table, 'ipoTable':ipo_table, 'secTable':sec_table, 'Trade_Table':trade_table})
 
     def post(self, request):
         oForm = OutputForm()
+        openPos = []
 
         passVal = request.POST.dict()
 
@@ -417,30 +574,155 @@ class OutputData(FormView):
         out_trades = Transaction.objects.filter(broker=out_broker).filter(tradedate__gte=out_sd).filter(tradedate__lte=out_ed).values()
         IPOPL = 0
         secPL = 0
+        commiss = 0
+
+        for i in out_trades:
+            if i['type'] == "Buy" and i['matching_amount'] != i['shareamount'] and i['shareamount'] != 0:
+                if i['matching_amount'] is None:
+                    openPos.append((i['symbol'], i['transtype'], i['shareamount']))
+                else:
+                    openPos.append((i['symbol'], i['transtype'], int(i['shareamount']) - int(i['matching_amount'])))
+
+        op_Pos_Table = populate_open_pos_table(openPos)
+        RequestConfig(request, paginate={'per_page': 3}).configure(op_Pos_Table)
+        #Update
+
+        matchedSalesIPO = []
+        openPos = []
 
         for i in out_trades:
             if i['type'] == "Buy" and i['transtype'] == 'IPO' and i['matching'] is not None:
-                matched_sell = Transaction.objects.get(prim_key=i['matching'])
-                #Need code for multiple sale matches
+                if ';' not in i['matching']:
+                    saleDetails = i['matching'].split("|")
+                    sharesSold = saleDetails[5]
+                    primK = ""
+                    for k in range(0, 5):
+                        if k != 4:
+                            primK += saleDetails[k] + "|"
+                        else:
+                            primK += saleDetails[k]
+                    matched_sell = Transaction.objects.get(prim_key=primK)
 
-                IPOPL += (float(matched_sell.sellprice) - float(i['buyprice'])) * float(i['matching_amount'])
+                    matchedSalesIPO.append((matched_sell, sharesSold))
+                else:
+                    for l in i['matching'].split(";"):
+                        saleDetails = l.split("|")
+                        sharesSold = saleDetails[5]
+                        primK = ""
+                        for k in range(0, 5):
+                            if k != 4:
+                                primK += saleDetails[k] + "|"
+                            else:
+                                primK += saleDetails[k]
+                        matched_sell = Transaction.objects.get(prim_key=primK)
+                        matchedSalesIPO.append((matched_sell, sharesSold))
+
+                avgPr = 0
+                sharesSold = 0
+                for k in matchedSalesIPO:
+                    avgPr += float(k[0].sellprice) * int(k[1])
+                    sharesSold += int(k[1])
+                    commiss += int(k[0].commiss)
+                if sharesSold != 0:
+                    avgSlPr = avgPr / sharesSold
+                else:
+                    avgSlPr = 0
+
+                IPOPL += (float(avgSlPr) - float(i['buyprice'])) * float(i['matching_amount'])
+
 
         ipo_table = populate_output_table(Transaction.objects.filter(broker=out_broker).filter(tradedate__gte=out_sd).filter(tradedate__lte=out_ed)
         .filter(type='Buy').filter(transtype='IPO').exclude(matching=None), "IPO")
 
         RequestConfig(request, paginate={'per_page': 10}).configure(ipo_table)
 
-        for i in out_trades:
-            if i['type'] == "Buy" and i['transtype'] == '2nd' and i['matching'] is not None:
-                matched_sell = Transaction.objects.get(prim_key=i['matching'])
-                #Need code for multiple sale matches
+        #update
 
-                secPL += (float(matched_sell.sellprice) - float(i['buyprice'])) * float(i['matching_amount'])
+        matchedSalesSec = []
+
+        for i in out_trades:
+            if i['type'] == "Buy" and (i['transtype'] == '2nd' or i['transtype'] == 'O/N') and i['matching'] is not None:
+                if ';' not in i['matching']:
+                    saleDetails = i['matching'].split("|")
+                    sharesSold = saleDetails[5]
+                    primK = ""
+                    for k in range(0, 5):
+                        if k != 4:
+                            primK += saleDetails[k] + "|"
+                        else:
+                            primK += saleDetails[k]
+                    matched_sell = Transaction.objects.get(prim_key=primK)
+
+                    matchedSalesSec.append((matched_sell, sharesSold))
+                else:
+                    for l in i['matching'].split(";"):
+                        saleDetails = l.split("|")
+                        sharesSold = saleDetails[5]
+                        primK = ""
+                        for k in range(0, 5):
+                            if k != 4:
+                                primK += saleDetails[k] + "|"
+                            else:
+                                primK += saleDetails[k]
+                        matched_sell = Transaction.objects.get(prim_key=primK)
+                        matchedSalesSec.append((matched_sell, sharesSold))
+
+                avgPr = 0
+                sharesSold = 0
+                for k in matchedSalesSec:
+                    avgPr += float(k[0].sellprice) * int(k[1])
+                    sharesSold += int(k[1])
+                    commiss += int(k[0].commiss)
+                if sharesSold != 0:
+                    avgSlPr = avgPr / sharesSold
+                else:
+                    avgSlPr = 0
+
+                secPL += (float(avgSlPr) - float(i['buyprice'])) * float(i['matching_amount'])
 
         sec_table = populate_output_table(Transaction.objects.filter(broker=out_broker).filter(tradedate__gte=out_sd).filter(tradedate__lte=out_ed)
-        .filter(type='Buy').filter(transtype='2nd').exclude(matching=None), "2nd")
+        .filter(type='Buy').filter(Q(transtype='2nd') | Q(transtype='O/N')).exclude(matching=None), "2nd")
 
         RequestConfig(request, paginate={'per_page': 10}).configure(sec_table)
 
+        matchedSalesTrades = []
 
-        return render(request, 'output.html', context = {'OutForm':oForm, 'IPO_PL':'${:,.2f}'.format(IPOPL), 'ipoTable':ipo_table, 'Sec_PL':'${:,.2f}'.format(secPL), 'secTable':sec_table})
+        for i in out_trades:
+            if i['type'] == "Buy" and i['transtype'] == 'Trade' and i['matching'] is not None:
+                if ';' not in i['matching']:
+                    saleDetails = i['matching'].split("|")
+                    sharesSold = saleDetails[5]
+                    primK = ""
+                    for k in range(0, 5):
+                        if k != 4:
+                            primK += saleDetails[k] + "|"
+                        else:
+                            primK += saleDetails[k]
+                    matched_sell = Transaction.objects.get(prim_key=primK)
+
+                    matchedSalesTrades.append((matched_sell, sharesSold))
+                else:
+                    for l in i['matching'].split(";"):
+                        saleDetails = l.split("|")
+                        sharesSold = saleDetails[5]
+                        primK = ""
+                        for k in range(0, 5):
+                            if k != 4:
+                                primK += saleDetails[k] + "|"
+                            else:
+                                primK += saleDetails[k]
+                        matched_sell = Transaction.objects.get(prim_key=primK)
+                        matchedSalesTrades.append((matched_sell, sharesSold))
+
+        trade_table = populate_output_table(Transaction.objects.filter(broker=out_broker).filter(tradedate__gte=out_sd).filter(tradedate__lte=out_ed)
+        .filter(type='Buy').filter(transtype='Trade'), "Trade")
+        RequestConfig(request, paginate={'per_page': 10}).configure(trade_table)
+
+        totPL = IPOPL + secPL
+        if totPL != 0:
+            netPerc = commiss / totPL
+        else:
+            netPerc = 0
+
+        return render(request, 'output.html', context = {'OutForm':oForm, 'OpenPositionTable':op_Pos_Table, 'IPO_PL':'${:,.2f}'.format(IPOPL), 'ipoTable':ipo_table, 'Sec_PL':'${:,.2f}'.format(secPL), 'secTable':sec_table,
+        'commis':'${:,.2f}'.format(commiss), 'Net_Perc':"{:.2%}".format(netPerc), 'Total_PL':'${:,.2f}'.format(totPL), 'Trade_Table':trade_table})

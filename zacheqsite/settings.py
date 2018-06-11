@@ -29,7 +29,6 @@ ALLOWED_HOSTS = [
     'zachpeqdatabase.herokuapp.com',
 ]
 
-
 # Application definition
 
 INSTALLED_APPS = [
