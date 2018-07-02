@@ -103,7 +103,6 @@ def conv_input(import_data):
                 outSet.append(tuple(outList))
 
             count += 1
-        print(outSet)
         return(outSet)
     elif ioi:
         count = 0
@@ -112,7 +111,10 @@ def conv_input(import_data):
         for i in headL:
             if i in dictHead:
                 if dictHead[i] in dictH:
-                    dictH[dictHead[i]] = count
+                    if dictH[dictHead[i]] == -1:
+                        dictH[dictHead[i]] = count
+                    else:
+                        dictH[dictHead[i]] = str(dictH[dictHead[i]]) +  "|" + str(count)
             count += 1
 
         count = 0
@@ -126,20 +128,46 @@ def conv_input(import_data):
         for i in import_data:
             outList = []
             dat = list(i)
-            for j in dictH:
-                if dictH[j] != -1:
-                    val = dat[dictH[j]]
-                    if val in dictTick:
-                        val = dictTick[val]
-                    outList.append(val)
-                elif j == 'prim_key':
-                    outList.append(dat[0] + '|' + dat[1] + '|' + dat[2] + '|' + str(dat[3]).replace(' ','_') + '|' + str(dat[6]))
-                else:
-                    outList.append(None)
+            if dat[0] is not None:
+                for j in dictH:
+                    if dictH[j] != -1:
+                        if not isinstance(dictH[j], str):
+                            val = dat[dictH[j]]
+                        else:
+                            vals = dictH[j].split("|")
+                            res = 0
+                            for k in vals:
+                                if dat[int(k)] is not None:
+                                    res += dat[int(k)]
 
-            outSet.append(tuple(outList))
+                            val = str(res)
 
-            count += 1
+                        if val in dictTick:
+                            val = dictTick[val]
+
+                        if j == "symbol":
+                            if " " in val:
+                                val = str(val).replace(" ", "|")
+
+                        outList.append(val)
+                    elif j == 'prim_key':
+                        if dat[6] is not None and dat[7] is not None:
+                            shrs = dat[6] + dat[7]
+                        elif dat[7] is None:
+                            shrs = dat[6]
+                        elif dat[6] is None:
+                            shrs = dat[7]
+                        else:
+                            shrs = 0
+
+                        print(dat[0], dat[2], shrs)
+                        outList.append(dat[0] + '|' + dat[1] + '|' + str(dat[2]).replace(' ', '|') + '|' + str(dat[3]).replace(' ','_') + '|' + str(shrs))
+                    else:
+                        outList.append(None)
+
+                outSet.append(tuple(outList))
+
+                count += 1
 
         return(outSet)
 
@@ -726,3 +754,97 @@ class OutputData(FormView):
 
         return render(request, 'output.html', context = {'OutForm':oForm, 'OpenPositionTable':op_Pos_Table, 'IPO_PL':'${:,.2f}'.format(IPOPL), 'ipoTable':ipo_table, 'Sec_PL':'${:,.2f}'.format(secPL), 'secTable':sec_table,
         'commis':'${:,.2f}'.format(commiss), 'Net_Perc':"{:.2%}".format(netPerc), 'Total_PL':'${:,.2f}'.format(totPL), 'Trade_Table':trade_table})
+
+class SummaryTable(tables.Table):
+    paginate_by = 20
+
+def populate_summary_table(summaryList):
+    outTable = []
+    datHeads = ['broker', 'IPO PL', '2nd ON', 'Total', 'commiss', 'Net', 'Pref Commissions']
+
+    heads = [('broker', tables.Column('Broker')), ('IPO PL', tables.Column('IPO P&L')), ('2nd ON', tables.Column('2nd Overnight P&L')),
+    ('Total', tables.Column('Total P&L')), ('commiss', tables.Column('Commissions')), ('Net', tables.Column('Net P&L')), ('Pref Commissions', tables.Column('Pref Commissions'))]
+
+    for i in summaryList:
+        rowDict = {}
+
+        for j in datHeads:
+            datDict = {}
+
+            if j == 'broker':
+                datDict[j] = i[0]
+            elif j == 'IPO PL':
+                datDict[j] = '${:,.2f}'.format(i[1])
+            elif j == '2nd ON':
+                datDict[j] = '${:,.2f}'.format(i[2])
+            elif j == 'Total':
+                datDict[j] = '${:,.2f}'.format(i[3])
+            elif j == 'commiss':
+                datDict[j] = '${:,.2f}'.format(i[4])
+            elif j == 'Net':
+                datDict[j] = '${:,.2f}'.format(i[5])
+
+            rowDict.update(datDict)
+        outTable.append(rowDict)
+
+    table = SummaryTable(outTable, extra_columns=heads)
+    return(table)
+
+
+@login_required
+def summary(request):
+    """
+    View function for Summary of site.
+    """
+
+    brokers = []
+    all_trades = Transaction.objects.filter(type='Buy').values()
+
+    for i in all_trades:
+        if i['broker'] not in brokers:
+            brokers.append(i['broker'])
+
+    summList = []
+
+    for i in brokers:
+        IPOPL = 0
+        secPL = 0
+        commiss = 0
+
+        for j in all_trades:
+            if j['shareamount'] != 0:
+                if j['broker'] == i:
+                    commiss += j['commiss']
+                    if j['transtype'] == 'IPO' and j['matching'] is not None:
+                        if ';' not in j['matching']:
+                            matchK = ""
+                            trL = j['matching'].split("|")
+                            for k in range(0, 5):
+                                if k < 4:
+                                    matchK += trL[k] + "|"
+                                else:
+                                    matchK += trL[k]
+                            saleDets = Transaction.objects.get(prim_key=matchK)
+                        #code for many matching sales
+                        IPOPL += (saleDets.sellprice - j['buyprice']) * j['matching_amount']
+                        commiss += saleDets.commiss
+                    elif (j['transtype'] == '2nd' or j['transtype'] == 'ON') and j['matching'] is not None:
+                        if ';' not in j['matching']:
+                            matchK = ""
+                            trL = j['matching'].split("|")
+                            for k in range(0, 5):
+                                if k < 4:
+                                    matchK += trL[k] + "|"
+                                else:
+                                    matchK += trL[k]
+                            saleDets = Transaction.objects.get(prim_key=matchK)
+                        #code for many matching sales
+                        secPL += (saleDets.sellprice - j['buyprice']) * j['matching_amount']
+                        commiss += saleDets.commiss
+        totPL = IPOPL + secPL
+        netPL = totPL - commiss
+        summList.append((i, IPOPL, secPL, totPL, commiss, netPL))
+
+    print(summList)
+    Summary_Table = populate_summary_table(summList)
+    return render(request, 'summary.html', context ={'SummaryTable':Summary_Table})

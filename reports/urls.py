@@ -9,6 +9,6 @@ urlpatterns = [
     path('datainput', views.input_data, name='input_data'),
     url(r'tradematch/$', login_required(TradeMatchView.as_view(success_url="tradematch")), name='trade_match'),
     path('output', login_required(OutputData.as_view(success_url="")), name='output'),
-
+    path('summary', views.summary, name='summary_tab'),
     path(r'^ajax/load-purchases/$', views.load_purchases, name='load_buys'),
 ]
